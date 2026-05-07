@@ -23,7 +23,7 @@ class ChemicalEnvironment:
     planarity, and ring membership for atoms in a crystal structure.
     """
     
-    def __init__(self, crystal_molecule, anion_positions=None):
+    def __init__(self, crystal_molecule, anion_positions=None, cation_positions=None):
         """
         Initialize with a CrystalMolecule or graph + positions.
         
@@ -36,6 +36,9 @@ class ChemicalEnvironment:
         anion_positions : Optional[List]
             Cartesian positions of anion atoms in the parent crystal. Used for
             charge-aware protonation heuristics.
+        cation_positions : Optional[List]
+            Cartesian positions of cation atoms in the parent crystal. Used for
+            context-aware isolated ion/water heuristics.
         """
         if hasattr(crystal_molecule, 'graph') and hasattr(crystal_molecule, 'get_positions'):
             # It's a CrystalMolecule object
@@ -48,6 +51,11 @@ class ChemicalEnvironment:
         self.anion_positions = (
             np.array(anion_positions, dtype=float)
             if anion_positions is not None and len(anion_positions) > 0
+            else np.empty((0, 3), dtype=float)
+        )
+        self.cation_positions = (
+            np.array(cation_positions, dtype=float)
+            if cation_positions is not None and len(cation_positions) > 0
             else np.empty((0, 3), dtype=float)
         )
         
@@ -213,6 +221,27 @@ class ChemicalEnvironment:
         )
         return terminal_oxygen_count >= 3
 
+    def _is_hypercoordinate_oxo_center(self, atom_index: int) -> bool:
+        """Return True for inorganic oxo anion centers such as ClO4 or NO3."""
+        center_symbol = self.graph.nodes[atom_index].get('symbol', '')
+        if center_symbol not in {'Cl', 'S', 'P', 'N'}:
+            return False
+
+        oxygen_neighbors = [
+            nb for nb in self._heavy_neighbors(atom_index)
+            if self.graph.nodes[nb].get('symbol', '') == 'O'
+        ]
+        terminal_oxygen_count = sum(
+            len(self._heavy_neighbors(o_idx)) == 1
+            for o_idx in oxygen_neighbors
+        )
+
+        if center_symbol == 'N':
+            return terminal_oxygen_count >= 3
+        if center_symbol == 'Cl':
+            return terminal_oxygen_count >= 4
+        return terminal_oxygen_count >= 3
+
     def _is_carboxylate_like_C(self, atom_index: int) -> bool:
         """Return True for carbon centers with two terminal O neighbours."""
         if self.graph.nodes[atom_index].get('symbol', '') != 'C':
@@ -262,6 +291,15 @@ class ChemicalEnvironment:
 
         center = self.positions[atom_index]
         distances = np.linalg.norm(self.anion_positions - center, axis=1)
+        return float(distances.min())
+
+    def nearest_cation_distance(self, atom_index: int) -> float:
+        """Return nearest distance from atom_index to known cation atoms."""
+        if len(self.cation_positions) == 0:
+            return float('inf')
+
+        center = self.positions[atom_index]
+        distances = np.linalg.norm(self.cation_positions - center, axis=1)
         return float(distances.min())
 
     def has_conjugated_ring_bond(self, atom_index: int, threshold: float = 1.43) -> bool:
@@ -569,7 +607,11 @@ class CarbonSite(HybridizedSite):
         num_h = 0
         geometry = 'tetrahedral'
 
-        if coord == 3:
+        if coord == 0:
+            num_h = 4
+            geometry = 'tetrahedral'
+
+        elif coord == 3:
             # Case: sp2 (Planar, ~360 sum) vs sp3 (Pyramidal, ~328.5 sum)
             # Previous logic was flawed: it prioritized ring planarity over local geometry
             # New logic: Local geometry takes precedence over global ring properties
@@ -794,6 +836,14 @@ class NitrogenSite(HybridizedSite):
         in_ring = self.ring_info['in_ring']
         is_planar_ring = self.ring_info['is_ring_planar']
         ring_sizes = self.ring_info['ring_sizes']
+
+        if coord == 0:
+            if self.env.nearest_anion_distance(self.atom_index) < 3.20:
+                num_h = 4
+            else:
+                num_h = 3
+            geometry = 'tetrahedral'
+            return {'num_h': num_h, 'geometry': geometry, 'bond_length': bond_length}
         
         # Strained 3-membered rings (aziridine): usually sp3, BUT if there is an
         # exocyclic bond with double-bond character (min_heavy < 1.38, e.g. C=N
@@ -957,7 +1007,20 @@ class GenericSite(HybridizedSite):
         #   C-O ether/alc:   ~1.43   sp3
         #   3-membered ring: strained → sp3 regardless of length
         if atom_symbol == 'O':
-            if coord == 1:
+            if coord == 0:
+                if (
+                    self.env.nearest_anion_distance(self.atom_index) < 3.20
+                    and self.env.nearest_cation_distance(self.atom_index) >= 2.60
+                ):
+                    num_h = 3
+                    geometry = 'trigonal_planar'  # oxonium-like
+                elif self.env.nearest_cation_distance(self.atom_index) < 2.60:
+                    num_h = 1
+                    geometry = 'bent'  # hydroxide-like
+                else:
+                    num_h = 2
+                    geometry = 'bent'  # neutral water
+            elif coord == 1:
                 # Terminal O is ambiguous by length alone in noisy CIFs.  Prefer
                 # the neighbour's local environment over a single C/S-O cutoff.
                 neighbor_idx = heavy_neighbors[0] if heavy_neighbors else None
@@ -967,6 +1030,8 @@ class GenericSite(HybridizedSite):
                 )
 
                 if neighbor_idx is not None and (
+                    self.env._is_hypercoordinate_oxo_center(neighbor_idx)
+                    or
                     (neighbor_symbol == 'S' and self.env._is_sulfonate_like_S(neighbor_idx))
                     or (neighbor_symbol == 'P' and self.env._is_phosphonate_like_P(neighbor_idx))
                 ):

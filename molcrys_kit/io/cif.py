@@ -214,6 +214,26 @@ def _clean_species_string(species_string: str) -> str:
     return element_match.group(0) if element_match else cleaned
 
 
+def _extract_formula_moiety(parser: CifParser) -> Optional[str]:
+    """Extract the raw _chemical_formula_moiety field from pymatgen's CIF data."""
+    try:
+        cif_data = getattr(parser, "_cif")
+        blocks = list(cif_data.data.values())
+        if not blocks:
+            return None
+
+        block = blocks[0]
+        data = getattr(block, "data", block)
+        value = data.get("_chemical_formula_moiety")
+        if value is None:
+            return None
+
+        value = str(value).strip()
+        return value or None
+    except (AttributeError, KeyError, IndexError, TypeError):
+        return None
+
+
 def _extract_numeric_value(value_str: str) -> float:
     """
     Extract numeric value from CIF strings like '12.345(6)', '0.5', or '.'.
@@ -606,6 +626,8 @@ def read_mol_crystal(
             # Fallback for older pymatgen versions
             structures = parser.get_structures()
 
+    formula_moiety = _extract_formula_moiety(parser)
+
     # For simplicity, we take the first structure
     structure = structures[0]
 
@@ -633,7 +655,7 @@ def read_mol_crystal(
     # Assuming periodic boundary conditions in all directions
     pbc = (True, True, True)
 
-    return MolecularCrystal(lattice, molecules, pbc)
+    return MolecularCrystal(lattice, molecules, pbc, formula_moiety=formula_moiety)
 
 
 def parse_cif_advanced(
