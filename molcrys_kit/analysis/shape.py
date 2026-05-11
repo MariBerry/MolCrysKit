@@ -1,5 +1,25 @@
 """
-Topology-gated Continuous Shape Measure (CShM) classification.
+Core-residual Continuous Shape Measure (CShM) classification.
+
+This module describes coordination shells by sweeping over possible residual
+vertices: k=0 is the rigid CShM comparison against registered ideals, while
+k>0 fits an (N-k)-vertex core and classifies the removed vertices by geometric
+role relative to that core (face cap, off-axis cap, edge bridge, vertex
+extension, interstitial, or floating). The returned ``primary_label`` remains
+compatible with the registered ideal names when the decomposition maps cleanly
+to the registry; ``structural_description`` keeps the explicit descriptive
+breakdown for irregular or non-standard shells.
+
+Performance
+-----------
+The per-shell cost is approximately
+``sum_k C(N, k) * num_prototypes(CN=N-k) * cshm_unit``. For the intended
+coordination range (CN <= 12, default K_max <= 4), this is suitable for
+interactive figure generation: N=11, K=3 is typically on the order of hundreds
+of partitions, while N=6, K=2 is tens of partitions. Large batch sweeps over
+many thousands of structures should be parallelized by the caller (for example
+with joblib or process-level sharding); this module intentionally stays
+single-shell and side-effect free.
 
 References
 ----------
@@ -57,6 +77,21 @@ used here with Hungarian assignment plus Kabsch rotation.
 Barber, C. B.; Dobkin, D. P.; Huhdanpaa, H. T. "The Quickhull Algorithm for
 Convex Hulls." *ACM Trans. Math. Softw.* **1996**, *22*, 469-483.
 DOI: 10.1145/235815.235821.
+
+Hart, G. W. "Conway notation for polyhedra." online resource, **1998**.
+Provides the operation vocabulary for capped/ambo/dual relationships used as
+registry metadata here; the full Conway algebra is not implemented.
+
+Alvarez, S.; Llunell, M. "Continuous symmetry measures of penta-coordinated
+molecules: Berry and lever-arm pathways revisited." *J. Chem. Soc., Dalton
+Trans.* **2000**, 3288-3303. DOI: 10.1039/B004878J. Motivates using
+core-plus-residual descriptions as chemically meaningful coordination
+pathways.
+
+Pinsky, M.; Avnir, D.; Casanova, D.; Alemany, P. "Continuous shape measures for
+polygonal and polyhedral mesomorphic descriptions." *J. Math. Chem.* **1998**,
+*23*, 169-204. DOI: 10.1023/A:1019124121224. Supports descriptive rather than
+strictly categorical uses of CShM.
 
 Hoppe, R. "The Coordination Number -- an 'Inorganic Chameleon'."
 *Angew. Chem. Int. Ed.* **1970**, *9*, 25-34. DOI: 10.1002/anie.197000251.
