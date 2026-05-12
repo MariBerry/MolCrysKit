@@ -694,6 +694,8 @@ def _find_polyhedra_molecule_level(
             raise ValueError(
                 f"hard_cutoff must be positive when given, got {hard_cutoff!r}."
             )
+        if hard_cutoff > radius:
+            radius = hard_cutoff
 
     centres = np.array(
         [_molecule_centre(mol, center_kind) for mol in molecules], dtype=float
@@ -947,7 +949,10 @@ def find_polyhedra(
       more self-documenting name (passing both raises ``ValueError``).
       Use ``hard_cutoff`` to opt back into the historical "fill the
       ball" behaviour (forwarded to :func:`detect_coordination_number`
-      as ``cutoff=``). The molecule-level default
+      as ``cutoff=``). If ``hard_cutoff`` is larger than the current
+      search radius, the search radius is automatically bumped to
+      ``hard_cutoff`` so the requested hard sphere is not silently
+      truncated by candidate collection. The molecule-level default
       (:data:`DEFAULT_MOLECULAR_SEARCH_CUTOFF`) is set generously so the
       first packing-shell is captured without forcing callers to pick a
       radius.

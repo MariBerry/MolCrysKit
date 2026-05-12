@@ -186,7 +186,10 @@ split is:
   both raises `ValueError` because the resolution would be ambiguous).
   `hard_cutoff`, when set, is forwarded to `detect_coordination_number`
   as `cutoff=` and restores the historical "fill the ball" behaviour
-  (`mode="cutoff"`).
+  (`mode="cutoff"`).  If `hard_cutoff` is larger than the current search
+  radius, bump the search radius to `hard_cutoff` automatically so the
+  requested hard sphere cannot be silently truncated during candidate
+  collection.
 
 The record fields echo the kwargs faithfully:
 `record["search_cutoff"]` always holds the search radius actually used;

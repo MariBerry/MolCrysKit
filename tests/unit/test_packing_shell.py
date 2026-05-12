@@ -678,6 +678,35 @@ def test_find_polyhedra_molecule_cutoff_is_search_radius_not_hard_cap():
         assert record["coordination_number"] == 6
 
 
+def test_find_polyhedra_molecule_hard_cutoff_above_default_radius_auto_bumps():
+    """A molecule-level hard cap larger than the default search radius must
+    expand the candidate pool automatically.
+
+    Without the auto-bump, ``hard_cutoff=15`` with no explicit
+    ``cutoff/search_cutoff`` would still search only the default 12 Å
+    radius, silently dropping this Cl neighbour at 13 Å and returning
+    CN=0 even though the user asked for the full 15 Å ball.
+    """
+    cell = np.eye(3) * 40.0
+    n_mol = Atoms(symbols=["N"], positions=[[0.0, 0.0, 0.0]],
+                  cell=cell, pbc=True)
+    cl_mol = Atoms(symbols=["Cl"], positions=[[13.0, 0.0, 0.0]],
+                   cell=cell, pbc=True)
+    crys = MolecularCrystal(lattice=cell, molecules=[n_mol, cl_mol])
+
+    polys = find_polyhedra(crys, "N", "Cl", level="molecule",
+                           hard_cutoff=15.0)
+
+    assert len(polys) == 1
+    record = polys[0]
+    assert record["mode"] == "cutoff"
+    assert record["coordination_number"] == 1
+    assert record["shell_distances"] == pytest.approx([13.0])
+    assert record["cutoff"] == pytest.approx(15.0)
+    assert record["hard_cutoff"] == pytest.approx(15.0)
+    assert record["search_cutoff"] == pytest.approx(15.0)
+
+
 def test_find_polyhedra_molecule_hard_cutoff_restores_fill_mode():
     """`hard_cutoff` is the explicit opt-in for the historical
     "fill the ball" semantics on the molecule level.  Passing
