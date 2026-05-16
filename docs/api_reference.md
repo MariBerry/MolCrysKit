@@ -21,7 +21,7 @@ This document serves as a placeholder for the MolCrysKit API reference. The API 
 
 ### molcrys_kit.analysis
 - [DisorderSolver](../molcrys_kit/analysis/disorder/solver.py): Class for solving disorder problems using graph algorithms
-- [generate_ordered_replicas_from_disordered_sites](../molcrys_kit/analysis/disorder/process.py): Resolve disordered CIFs with `method="optimal"` (single greedy MWIS), `method="random"` (occupancy-weighted PART/SP sampling, optionally seeded), or `method="enumerate"` (deterministic Cartesian enumeration of independent alternatives)
+- [generate_ordered_replicas_from_disordered_sites](../molcrys_kit/analysis/disorder/process.py): Resolve disordered CIFs with `method="optimal"` (single greedy MWIS), `method="random"` (occupancy-weighted PART/SP sampling, optionally seeded), or `method="enumerate"` (deterministic Cartesian enumeration of independent alternatives).  By default `coupled=False` lets symmetry-equivalent copies choose PART/SP orientations independently (e.g. a two-copy PART 1/2 site can enumerate `AA`, `AB`, `BA`, `BB`); pass `coupled=True` to preserve the legacy all-copies-locked behaviour.
 - [DisorderGraphBuilder](../molcrys_kit/analysis/disorder/graph.py): Class for building exclusion graphs from disorder data
 - [ChemicalEnvironment](../molcrys_kit/analysis/chemical_env.py): Class for analyzing chemical environments in molecular crystals
 - [Fragment](../molcrys_kit/analysis/formula_moiety.py): Dataclass representing one parsed `_chemical_formula_moiety` fragment

@@ -31,7 +31,13 @@ class DisorderSolver:
     Solves the disorder problem by finding independent sets in the exclusion graph.
     """
 
-    def __init__(self, info: DisorderInfo, graph: nx.Graph, lattice: np.ndarray):
+    def __init__(
+        self,
+        info: DisorderInfo,
+        graph: nx.Graph,
+        lattice: np.ndarray,
+        coupled: bool = False,
+    ):
         """
         Initialize the solver.
 
@@ -47,6 +53,7 @@ class DisorderSolver:
         self.info = info
         self.graph = graph
         self.lattice = lattice
+        self._coupled = coupled
         self.atom_groups = []  # Will store groups of atoms by (disorder_group, assembly)
 
     def _identify_atom_groups(self):
@@ -69,13 +76,20 @@ class DisorderSolver:
             disorder_group = self.info.disorder_groups[i]
             assembly = self.info.assemblies[i] if i < len(self.info.assemblies) else ""
 
-            # Logic to handle PART -1 separation
-            if disorder_group < 0 and has_sym_info:
+            # Symmetry copies of explicit disorder should be independent in
+            # decoupled mode.  Negative PARTs are always separated because
+            # SHELX uses them for special-position fragments whose symmetry
+            # provenance must not be merged into one rigid body.
+            if (
+                has_sym_info
+                and disorder_group != 0
+                and (disorder_group < 0 or not self._coupled)
+            ):
                 sym_op = self.info.sym_op_indices[i] if i < len(self.info.sym_op_indices) else 0
-                # Include sym_op in the key to separate ghosts
                 group_key = (disorder_group, assembly, sym_op)
             else:
-                # Normal behavior for PART 1, 2 or PART -1 without sym info
+                # Legacy coupled behaviour for positive PARTs, and fallback
+                # for hand-built DisorderInfo without symmetry provenance.
                 group_key = (disorder_group, assembly)
 
             if group_key not in groups_map:
@@ -218,10 +232,16 @@ class DisorderSolver:
         "geometric", "valence_geometry", "implicit_sp",
     })
     _MOTIF_REJECT_SOFT = {"O": True, "N": False}
+    _MAX_MOTIF_ORIENTATIONS_PER_CENTER = 16
     _MAX_ALTERNATIVES_PER_COMPONENT = 32
     _MAX_ENUMERATED_STRUCTURES = 4096
 
     def _merge_chemical_motifs(self):
+        if self._coupled:
+            return self._merge_chemical_motifs_coupled()
+        return self._merge_chemical_motifs_decoupled()
+
+    def _merge_chemical_motifs_coupled(self):
         """
         Merge cross-asym-id chemical motifs (water, ammonium) into composite
         atom groups.
@@ -330,6 +350,100 @@ class DisorderSolver:
 
             new_groups.append(motif_atoms)
             merged_group_indices.update(motif_group_indices)
+
+        if not merged_group_indices:
+            return
+
+        rebuilt = [
+            g for gi, g in enumerate(self.atom_groups)
+            if gi not in merged_group_indices
+        ]
+        rebuilt.extend(new_groups)
+        self.atom_groups = rebuilt
+
+    def _merge_chemical_motifs_decoupled(self):
+        """
+        Reconstruct isolated X(H)n motifs while preserving alternative
+        orientations as competing rigid groups.
+
+        The coupled legacy path keeps only the greedy best orientation for a
+        special-position motif.  Decoupled enumeration needs all locally valid
+        orientations, so each candidate motif becomes one atom group.  The
+        group-level conflict graph later marks groups that share atoms as
+        mutually exclusive.
+        """
+        n_atoms = len(self.info.labels)
+
+        atom_to_group = {}
+        for gi, group in enumerate(self.atom_groups):
+            for a in group:
+                atom_to_group[a] = gi
+
+        centers = self._find_motif_centers(atom_to_group)
+        if not centers:
+            return
+
+        h_singletons = [
+            i for i in range(n_atoms)
+            if self.info.symbols[i] in ("H", "D")
+            and 0 < self.info.occupancies[i] < 1.0
+            and atom_to_group.get(i) is not None
+            and len(self.atom_groups[atom_to_group[i]]) == 1
+        ]
+        if not h_singletons:
+            return
+
+        c_frac = self.info.frac_coords[centers]
+        h_frac = self.info.frac_coords[h_singletons]
+        diff = c_frac[:, None, :] - h_frac[None, :, :]
+        diff = diff - np.round(diff)
+        cart_vecs = np.einsum("nij,jk->nik", diff, self.lattice)
+        dists_c_h = np.linalg.norm(cart_vecs, axis=2)
+
+        cutoffs_max = np.array([
+            self._MOTIF_BOND_CUTOFF[self.info.symbols[centers[ci]]]
+            for ci in range(len(centers))
+        ])
+        cutoffs_min = np.array([
+            self._MOTIF_BOND_MIN[self.info.symbols[centers[ci]]]
+            for ci in range(len(centers))
+        ])
+        within = (dists_c_h < cutoffs_max[:, None]) & (dists_c_h >= cutoffs_min[:, None])
+        masked = np.where(within, dists_c_h, np.inf)
+        best_ci_per_h = np.argmin(masked, axis=0) if len(centers) else np.array([], int)
+        any_within = np.any(within, axis=0)
+
+        new_groups = []
+        merged_group_indices = set()
+
+        for ci, c_idx in enumerate(centers):
+            allowed_h_mask = any_within & (best_ci_per_h == ci)
+            candidate_h_sets = self._enumerate_motif_candidates(
+                c_idx,
+                ci,
+                dists_c_h,
+                cart_vecs,
+                h_singletons,
+                allowed_h_mask=allowed_h_mask,
+            )
+            if not candidate_h_sets:
+                continue
+
+            center_groups = []
+            center_group_indices = set()
+            for picked_atoms in candidate_h_sets:
+                motif_atoms = [c_idx] + picked_atoms
+                motif_group_indices = {atom_to_group[a] for a in motif_atoms}
+                if len(motif_group_indices) < 2:
+                    continue
+                center_groups.append(motif_atoms)
+                center_group_indices.update(motif_group_indices)
+
+            if not center_groups or center_group_indices & merged_group_indices:
+                continue
+
+            new_groups.extend(center_groups)
+            merged_group_indices.update(center_group_indices)
 
         if not merged_group_indices:
             return
@@ -494,6 +608,155 @@ class DisorderSolver:
 
         return picked_atoms
 
+    def _enumerate_motif_candidates(self, c_idx, ci, dists_c_h, cart_vecs,
+                                    h_singletons, allowed_h_mask=None):
+        """Enumerate valid H choices around one isolated motif center.
+
+        Candidates are capped and ranked by local X-H distance so implicit-SP
+        sites expose several orientations without letting combinatorics run
+        away on highly disordered ammonium centres.
+        """
+        c_sym = self.info.symbols[c_idx]
+        cutoff = self._MOTIF_BOND_CUTOFF[c_sym]
+        cutoff_min = self._MOTIF_BOND_MIN[c_sym]
+        max_h = self._MOTIF_MAX_H[c_sym]
+        ang_min, ang_max = self._MOTIF_ANGLE_RANGE[c_sym]
+        reject_soft = self._MOTIF_REJECT_SOFT.get(c_sym, False)
+
+        in_range = (dists_c_h[ci] < cutoff) & (dists_c_h[ci] >= cutoff_min)
+        if allowed_h_mask is not None:
+            in_range = in_range & allowed_h_mask
+        near_local = np.where(in_range)[0]
+        if len(near_local) == 0:
+            return []
+
+        sorted_local = sorted(near_local, key=lambda j: dists_c_h[ci, j])
+
+        has_asym = bool(self.info.asym_id)
+        if has_asym:
+            candidate_asym_ids = {
+                self.info.asym_id[h_singletons[j]]
+                for j in near_local
+                if h_singletons[j] < len(self.info.asym_id)
+            }
+            enforce_one_per_asym = len(candidate_asym_ids) >= max_h
+        else:
+            enforce_one_per_asym = False
+
+        unit_vectors = {}
+        for j in sorted_local:
+            dist = dists_c_h[ci, j]
+            if dist > 0:
+                unit_vectors[j] = -cart_vecs[ci, j] / dist
+
+        candidates: list[tuple[list[int], float]] = []
+        seen: set[tuple[int, ...]] = set()
+
+        def _has_hard_conflict(h_atom, picked_atoms):
+            for p in picked_atoms:
+                if not self.graph.has_edge(h_atom, p):
+                    continue
+                ct = self.graph[h_atom][p].get("conflict_type", "")
+                if ct in self._MOTIF_HARD_CONFLICTS:
+                    return True
+            return False
+
+        def _angle_ok(uv, picked_unit):
+            for puv in picked_unit:
+                cos_a = float(np.clip(np.dot(uv, puv), -1.0, 1.0))
+                ang = np.degrees(np.arccos(cos_a))
+                if not (ang_min <= ang <= ang_max):
+                    return False
+            return True
+
+        def _rejects_soft(picked_atoms):
+            if not reject_soft:
+                return False
+            motif_atoms = [c_idx] + picked_atoms
+            for i, a in enumerate(motif_atoms):
+                for b in motif_atoms[i + 1:]:
+                    if not self.graph.has_edge(a, b):
+                        continue
+                    ct = self.graph[a][b].get("conflict_type", "")
+                    if ct in self._MOTIF_SOFT_CONFLICTS:
+                        return True
+            return False
+
+        def _record(picked_atoms):
+            if _rejects_soft(picked_atoms):
+                return
+            key = tuple(sorted(picked_atoms))
+            if key in seen:
+                return
+            seen.add(key)
+            score = sum(
+                dists_c_h[ci, sorted_local_idx]
+                for sorted_local_idx in sorted_local
+                if h_singletons[sorted_local_idx] in key
+            )
+            candidates.append((list(picked_atoms), score))
+
+        def _search(start, picked_atoms, picked_unit, picked_asym_ids):
+            if len(candidates) >= self._MAX_MOTIF_ORIENTATIONS_PER_CENTER:
+                return
+            if len(picked_atoms) == max_h:
+                _record(picked_atoms)
+                return
+            remaining_slots = max_h - len(picked_atoms)
+            if len(sorted_local) - start < remaining_slots:
+                return
+
+            for pos in range(start, len(sorted_local)):
+                if len(candidates) >= self._MAX_MOTIF_ORIENTATIONS_PER_CENTER:
+                    return
+                if len(sorted_local) - pos < remaining_slots:
+                    return
+
+                j = sorted_local[pos]
+                h = h_singletons[j]
+                if j not in unit_vectors:
+                    continue
+
+                h_asym = None
+                next_asym_ids = picked_asym_ids
+                if enforce_one_per_asym and h < len(self.info.asym_id):
+                    h_asym = self.info.asym_id[h]
+                    if h_asym in picked_asym_ids:
+                        continue
+
+                if _has_hard_conflict(h, picked_atoms):
+                    continue
+                uv = unit_vectors[j]
+                if not _angle_ok(uv, picked_unit):
+                    continue
+
+                if h_asym is not None:
+                    next_asym_ids = picked_asym_ids | {h_asym}
+                _search(
+                    pos + 1,
+                    picked_atoms + [h],
+                    picked_unit + [uv],
+                    next_asym_ids,
+                )
+
+        _search(0, [], [], set())
+
+        if not candidates:
+            # Preserve legacy tolerance for incomplete motifs when no complete
+            # orientation passes the combinatorial checks.
+            fallback = self._select_motif_hydrogens(
+                c_idx, ci, dists_c_h, cart_vecs, h_singletons,
+                allowed_h_mask=allowed_h_mask,
+            )
+            return [fallback] if fallback else []
+
+        candidates.sort(key=lambda item: (len(item[0]), -item[1]), reverse=True)
+        return [
+            atoms for atoms, _score in candidates[
+                : self._MAX_MOTIF_ORIENTATIONS_PER_CENTER
+            ]
+        ]
+
     def _max_weight_independent_set_by_groups(
         self, graph=None, weight_attr="occupancy"
     ):
@@ -640,7 +903,30 @@ class DisorderSolver:
         of this graph are independent disorder decisions.
         """
         group_graph = nx.Graph()
-        atom_to_group = {}
+
+        if self._coupled:
+            atom_to_group = {}
+            for group_idx, group in enumerate(self.atom_groups):
+                if not self._is_valid_atom_group(group):
+                    continue
+                group_graph.add_node(
+                    group_idx,
+                    atoms=list(group),
+                    weight=self._group_weight(group),
+                )
+                for atom_idx in group:
+                    atom_to_group[atom_idx] = group_idx
+
+            for atom_a, atom_b in self.graph.edges():
+                group_a = atom_to_group.get(atom_a)
+                group_b = atom_to_group.get(atom_b)
+                if group_a is None or group_b is None or group_a == group_b:
+                    continue
+                group_graph.add_edge(group_a, group_b)
+
+            return group_graph
+
+        atom_to_groups = {}
 
         for group_idx, group in enumerate(self.atom_groups):
             if not self._is_valid_atom_group(group):
@@ -651,14 +937,27 @@ class DisorderSolver:
                 weight=self._group_weight(group),
             )
             for atom_idx in group:
-                atom_to_group[atom_idx] = group_idx
+                atom_to_groups.setdefault(atom_idx, []).append(group_idx)
+
+        # Multi-orientation motif groups intentionally share their center (and
+        # sometimes H atoms).  Sharing an atom makes the groups alternatives.
+        for group_indices in atom_to_groups.values():
+            if len(group_indices) < 2:
+                continue
+            for i, group_a in enumerate(group_indices):
+                for group_b in group_indices[i + 1:]:
+                    if group_a != group_b:
+                        group_graph.add_edge(group_a, group_b)
 
         for atom_a, atom_b in self.graph.edges():
-            group_a = atom_to_group.get(atom_a)
-            group_b = atom_to_group.get(atom_b)
-            if group_a is None or group_b is None or group_a == group_b:
+            groups_a = atom_to_groups.get(atom_a, [])
+            groups_b = atom_to_groups.get(atom_b, [])
+            if not groups_a or not groups_b:
                 continue
-            group_graph.add_edge(group_a, group_b)
+            for group_a in groups_a:
+                for group_b in groups_b:
+                    if group_a != group_b:
+                        group_graph.add_edge(group_a, group_b)
 
         return group_graph
 
@@ -703,7 +1002,7 @@ class DisorderSolver:
                 weight += group_graph.nodes[group_idx]["weight"]
             if weight <= 0.0:
                 continue
-            atoms_tuple = tuple(sorted(atoms))
+            atoms_tuple = tuple(sorted(set(atoms)))
             rank_key = (weight, len(atoms_tuple), atoms_tuple)
             heap_item = (rank_key, list(atoms_tuple), weight)
             if len(top_alternatives) < max_collect:
@@ -765,8 +1064,13 @@ class DisorderSolver:
 
     def _combine_alternatives(self, picked_alternatives) -> List[int]:
         selected = []
+        seen = set()
         for atoms, _weight in picked_alternatives:
-            selected.extend(atoms)
+            for atom in atoms:
+                if atom in seen:
+                    continue
+                seen.add(atom)
+                selected.append(atom)
         return selected
 
     def _weighted_choice(self, alternatives, rng):

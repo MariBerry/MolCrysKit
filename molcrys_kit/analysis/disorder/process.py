@@ -18,6 +18,7 @@ def generate_ordered_replicas_from_disordered_sites(
     method: str = "optimal",
     random_seed: Optional[int] = None,
     return_kept_indices: bool = False,
+    coupled: bool = False,
 ) -> List[MolecularCrystal] | List[Tuple[MolecularCrystal, List[int]]]:
     """
     Process a disordered CIF file through the full disorder handling pipeline.
@@ -39,6 +40,10 @@ def generate_ordered_replicas_from_disordered_sites(
         When True, return ``(crystal, kept_indices)`` tuples where
         ``kept_indices`` index the source ``DisorderInfo`` arrays selected
         by the solver.
+    coupled : bool, optional
+        When False (default), symmetry-expanded copies of the same disorder
+        assembly make independent PART/orientation decisions.  When True,
+        preserve the legacy behaviour that locks symmetry copies together.
 
     Returns:
     --------
@@ -61,11 +66,11 @@ def generate_ordered_replicas_from_disordered_sites(
         )
 
     # Phase 2: Build exclusion graph
-    builder = DisorderGraphBuilder(info, lattice_matrix)
+    builder = DisorderGraphBuilder(info, lattice_matrix, coupled=coupled)
     graph = builder.build()
 
     # Phase 3: Generate ordered structures
-    solver = DisorderSolver(info, graph, lattice_matrix)
+    solver = DisorderSolver(info, graph, lattice_matrix, coupled=coupled)
     results = solver.solve(
         num_structures=generate_count,
         method=method,

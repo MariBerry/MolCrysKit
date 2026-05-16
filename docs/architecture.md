@@ -41,4 +41,19 @@ The [DisorderSolver](../molcrys_kit/analysis/disorder/solver.py) implements the 
 - Enumerates Cartesian products of independent PART/SP alternatives with `method="enumerate"`
 - Reconstructs complete molecular crystals from the selected atom sets
 
+### Symmetry-Copy Decoupling
+`generate_ordered_replicas_from_disordered_sites(..., coupled=False)` is the
+default enumeration contract.  Explicit PART/assembly conflicts are scoped to
+the same symmetry operation when symmetry provenance is available, so expanded
+copies of one asymmetric-unit disorder model make independent decisions.  For
+example, a two-copy PART 1/2 site enumerates `AA`, `AB`, `BA`, and `BB` rather
+than only `AA` and `BB`.
+
+The same flag applies to implicit special-position motifs.  In decoupled mode,
+isolated X(H)n centres such as NH4+ expose multiple locally valid H
+orientations as competing rigid groups, bounded by
+`_MAX_MOTIF_ORIENTATIONS_PER_CENTER`.  Passing `coupled=True` restores the
+legacy behaviour where symmetry copies are locked together and motif merge keeps
+only the greedy best orientation.
+
 The MWIS solution represents a compromise between maximizing total occupancy (thermodynamic stability) and minimizing steric clashes (geometric feasibility), resulting in physically realistic ordered structures from disordered crystal data.

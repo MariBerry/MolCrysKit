@@ -324,12 +324,14 @@ def _solve_cached(
     method: str,
     generate_count: int,
     random_seed: int | None,
+    coupled: bool = True,
 ):
     return generate_ordered_replicas_from_disordered_sites(
         path,
         generate_count=generate_count,
         method=method,
         random_seed=random_seed,
+        coupled=coupled,
     )
 
 
