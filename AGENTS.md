@@ -78,6 +78,15 @@ semantics:
   chemistry-equivalent to the MWIS reference (same element totals and motif
   counts), even if the raw alternative pool contains lower-quality variants.
 
+The high-level API and graph/solver constructors accept `coupled`:
+
+- `coupled=False` (default): symmetry-expanded copies of one PART/assembly or
+  implicit-SP motif are independent decision components.  This is the intended
+  mode for mixed replicas such as `ABAB`.
+- `coupled=True`: legacy compatibility mode where symmetry copies sharing a
+  disorder assembly are locked to the same PART choice, and motif merge keeps
+  the single greedy best X(H)n orientation.
+
 Random/enumerate alternatives intentionally keep a linear occupancy weight
 (`sum(group occupancy)`) so the sampler remains occupancy-weighted rather than
 using the optimal-mode `* group_size / degree` heuristic.  The solver instead
@@ -97,6 +106,11 @@ stabilises outputs by:
    break complete NH4 motif counts or contain sub-0.65 Å contacts.  Replacing
    non-reference `enumerate` samples when their element totals drift from the
    reference.
+
+When adding disorder regression cases, make the intended `coupled` value
+explicit in the test.  Keep legacy regression expectations on `coupled=True`
+when they are asserting historical behaviour, and add targeted `coupled=False`
+tests for symmetry-copy decoupling or mixed-replica coverage.
 
 ### Do not add a single "unified" path
 

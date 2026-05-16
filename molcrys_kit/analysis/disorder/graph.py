@@ -33,9 +33,25 @@ class DisorderGraphBuilder:
     Builds an exclusion graph from DisorderInfo data.
     """
 
-    def __init__(self, info: DisorderInfo, lattice: np.ndarray):
+    def __init__(
+        self,
+        info: DisorderInfo,
+        lattice: np.ndarray,
+        coupled: bool = False,
+    ):
+        """Initialize the graph builder.
+
+        Parameters
+        ----------
+        coupled:
+            When True, preserve the legacy behaviour where symmetry copies
+            sharing one disorder assembly are locked to the same PART choice.
+            The default treats each symmetry copy as an independent disorder
+            decision when symmetry provenance is available.
+        """
         self.info = info
         self.lattice = lattice
+        self._coupled = coupled
         self.graph = nx.Graph()
         self.conformers = []
         self.sp_completion_pairs = []
@@ -406,13 +422,16 @@ class DisorderGraphBuilder:
                 if assembly_i and assembly_j and assembly_i == assembly_j:
                     g_i = self.info.disorder_groups[i]
                     g_j = self.info.disorder_groups[j]
-                    # Negative PART groups share the assembly label across
-                    # all symmetry copies, so "same assembly" is not a strong
-                    # enough signal of mutual exclusion.  Only flag a real
-                    # conflict when both atoms refer to the SAME
-                    # crystallographic site (same sym_op_index).  See the
-                    # matching guard in _add_conformer_conflicts.
-                    if g_i < 0 and g_j < 0 and self.info.sym_op_indices:
+                    # In decoupled mode, one assembly label describes the
+                    # asymmetric-unit disorder model; expanded symmetry copies
+                    # should make independent PART choices.  Only atoms from
+                    # the same symmetry provenance compete.
+                    # Negative PARTs keep the historical guard in both modes:
+                    # their assembly label is shared across symmetry copies.
+                    if (
+                        self.info.sym_op_indices
+                        and (not self._coupled or (g_i < 0 and g_j < 0))
+                    ):
                         sop_i = (
                             self.info.sym_op_indices[i]
                             if i < len(self.info.sym_op_indices)
@@ -423,7 +442,11 @@ class DisorderGraphBuilder:
                             if j < len(self.info.sym_op_indices)
                             else None
                         )
-                        if sop_i != sop_j:
+                        if (
+                            sop_i is not None
+                            and sop_j is not None
+                            and sop_i != sop_j
+                        ):
                             continue
                     has_conflict = True
                 elif not assembly_i and not assembly_j:
@@ -488,14 +511,27 @@ class DisorderGraphBuilder:
                 # _add_implicit_sp_conflicts() using proximity clustering, which is
                 # more robust than a fixed threshold for both heavy atoms and H.
                 # Only apply the wide DISORDER_CLASH_THRESHOLD (2.2 Å) when
-                # BOTH atoms belong to *positive* explicit disorder groups
-                # (e.g. PART 1 vs PART 2).  Different *negative* PART groups
+                # BOTH atoms belong to *positive* explicit disorder groups at
+                # the same crystallographic site.  In decoupled mode, symmetry
+                # copies of one assembly are independent and should only be
+                # screened by the conservative hard-sphere threshold.
+                # Different *negative* PART groups
                 # (e.g. PART -1 vs PART -2) are distinct chemical species that
                 # coexist in the structure (e.g. perchlorate O vs NH4+ H) and
                 # must NOT be treated as disorder alternatives — use the
                 # conservative HARD_SPHERE_THRESHOLD (0.85 Å) instead to avoid
                 # false conflict edges that would exclude one species entirely.
-                if g_i > 0 and g_j > 0 and g_i != g_j:
+                same_sym_site = True
+                if (
+                    not self._coupled
+                    and self.info.sym_op_indices
+                    and i < len(self.info.sym_op_indices)
+                    and j < len(self.info.sym_op_indices)
+                ):
+                    same_sym_site = (
+                        self.info.sym_op_indices[i] == self.info.sym_op_indices[j]
+                    )
+                if g_i > 0 and g_j > 0 and g_i != g_j and same_sym_site:
                     threshold = DISORDER_CONFIG["DISORDER_CLASH_THRESHOLD"]
                 else:
                     threshold = DISORDER_CONFIG["HARD_SPHERE_THRESHOLD"]
