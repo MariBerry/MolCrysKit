@@ -102,30 +102,14 @@ def _pymatgen_cif_parser(filepath: str, **kwargs) -> CifParser:
     return CifParser(filepath, **kwargs)
 
 
-def identify_molecules(
+def _build_molecule_graph(
     atoms: Atoms,
     bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
-    max_atoms: Optional[int] = None,
     exclude_indices: Optional[set[int]] = None,
-) -> List[CrystalMolecule]:
-    """
-    Identify discrete molecular units using robust vector-based unwrapping.
+) -> nx.Graph:
+    """Build the bonded graph used for molecule identification."""
+    from ..constants.config import KEY_DISORDER_GROUP, KEY_SYM_OP_INDEX
 
-    This implementation solves the "Large Beta Angle" problem by strictly using
-    the bond vectors identified by ASE's neighbor list logic, rather than
-    guessing nearest neighbors via Minimum Image Convention.
-
-    When disorder group metadata is present, bonds between two atoms in
-    different non-zero PART groups are skipped. This mirrors the disorder
-    graph's bonding rule: ordered atoms (group 0) may bond to either
-    orientation, but mutually exclusive disorder images must not fuse into one
-    molecule. When symmetry-operation provenance is available, atoms in the
-    same non-zero PART group must also come from the same generated image
-    before they can bond. ``exclude_indices`` remains available for callers
-    that need to remove atoms from bond perception entirely.
-    """
-    from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL, KEY_SYM_OP_INDEX
-    
     crystal_graph = nx.Graph()
     symbols = atoms.get_chemical_symbols()
 
@@ -147,9 +131,7 @@ def identify_molecules(
 
     from ..analysis.interactions import get_bonding_threshold
 
-    for idx, (i, j, distance, D_vec) in enumerate(
-        zip(i_list, j_list, d_list, D_vectors)
-    ):
+    for i, j, distance, D_vec in zip(i_list, j_list, d_list, D_vectors):
         if i >= j:
             continue
         if int(i) in excluded or int(j) in excluded:
@@ -192,11 +174,89 @@ def identify_molecules(
             # Store the EXACT vector that connects i to j
             crystal_graph.add_edge(i, j, vector=D_vec)
 
-    components = list(nx.connected_components(crystal_graph))
+    return crystal_graph
+
+
+def _component_atom_indices(
+    crystal_graph: nx.Graph,
+    exclude_indices: Optional[set[int]] = None,
+    include_excluded: bool = True,
+) -> List[List[int]]:
+    """Return sorted atom-index components from a molecule graph."""
+    excluded = {int(i) for i in (exclude_indices or set())}
+    components = []
+    for component in nx.connected_components(crystal_graph):
+        atom_indices = sorted(int(i) for i in component)
+        if not include_excluded and excluded:
+            atom_indices = [i for i in atom_indices if i not in excluded]
+        if atom_indices:
+            components.append(atom_indices)
+    return components
+
+
+def identify_molecule_indices(
+    atoms: Atoms,
+    bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
+    exclude_indices: Optional[set[int]] = None,
+) -> List[List[int]]:
+    """
+    Identify discrete molecular units and return their original atom indices.
+
+    This is a lightweight companion to :func:`identify_molecules` for workflows
+    that need molecule membership without constructing CrystalMolecule objects
+    or changing the original ASE Atoms ordering. Bond perception is identical
+    to ``identify_molecules``. Atoms in ``exclude_indices`` are removed from
+    the returned groups.
+    """
+    crystal_graph = _build_molecule_graph(
+        atoms,
+        bond_thresholds=bond_thresholds,
+        exclude_indices=exclude_indices,
+    )
+    return _component_atom_indices(
+        crystal_graph,
+        exclude_indices=exclude_indices,
+        include_excluded=False,
+    )
+
+
+def identify_molecules(
+    atoms: Atoms,
+    bond_thresholds: Optional[Dict[Tuple[str, str], float]] = None,
+    max_atoms: Optional[int] = None,
+    exclude_indices: Optional[set[int]] = None,
+) -> List[CrystalMolecule]:
+    """
+    Identify discrete molecular units using robust vector-based unwrapping.
+
+    This implementation solves the "Large Beta Angle" problem by strictly using
+    the bond vectors identified by ASE's neighbor list logic, rather than
+    guessing nearest neighbors via Minimum Image Convention.
+
+    When disorder group metadata is present, bonds between two atoms in
+    different non-zero PART groups are skipped. This mirrors the disorder
+    graph's bonding rule: ordered atoms (group 0) may bond to either
+    orientation, but mutually exclusive disorder images must not fuse into one
+    molecule. When symmetry-operation provenance is available, atoms in the
+    same non-zero PART group must also come from the same generated image
+    before they can bond. ``exclude_indices`` remains available for callers
+    that need to remove atoms from bond perception entirely.
+    """
+    from ..constants.config import KEY_OCCUPANCY, KEY_DISORDER_GROUP, KEY_ASSEMBLY, KEY_LABEL, KEY_SYM_OP_INDEX
+
+    crystal_graph = _build_molecule_graph(
+        atoms,
+        bond_thresholds=bond_thresholds,
+        exclude_indices=exclude_indices,
+    )
+    components = _component_atom_indices(
+        crystal_graph,
+        exclude_indices=exclude_indices,
+        include_excluded=True,
+    )
     molecules = []
 
-    for component in components:
-        atom_indices = sorted(int(i) for i in component)
+    for atom_indices in components:
         mol_atoms = atoms[atom_indices]
         mol_atoms.info["atom_indices"] = list(atom_indices)
 
