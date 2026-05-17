@@ -9,7 +9,6 @@ from typing import Optional
 import warnings
 
 import numpy as np
-from ase import Atoms
 from ase.constraints import FixScaled
 from ase.io.vasp import write_vasp
 
@@ -249,7 +248,7 @@ def write_poscar(
     comment: Optional[str] = None,
     direct: bool = True,
     wrap: bool = False,
-    sort: bool = True,
+    sort: bool = False,
     selective_dynamics: Optional[np.ndarray] = None,
 ) -> str:
     """
@@ -275,8 +274,10 @@ def write_poscar(
     wrap : bool, default=False
         If True, wrap atomic positions into the unit cell before writing. The
         default preserves MolCrysKit's unwrapped, contiguous molecule geometry.
-    sort : bool, default=True
+    sort : bool, default=False
         If True, let ASE group atoms alphabetically by element for VASP output.
+        The default preserves the MolecularCrystal/ASE atom order, which is
+        required by workflows such as NEB interpolation.
     selective_dynamics : np.ndarray, optional
         VASP-style boolean flags with shape ``(n_atoms, 3)``. True writes ``T``
         (coordinate free to move) and False writes ``F`` (coordinate fixed).
@@ -293,39 +294,52 @@ def write_poscar(
         KEY_OCCUPANCY,
     )
 
-    symbols = []
-    positions = []
-    occupancies = []
-    disorder_groups = []
-    assemblies = []
-    labels = []
+    atoms = crystal.to_ase()
+    symbols = atoms.get_chemical_symbols()
+    n_total = len(atoms)
 
-    for mol in crystal.molecules:
-        mol_symbols = mol.get_chemical_symbols()
-        n_atoms = len(mol)
-        arrays = getattr(mol, "arrays", {})
-
-        mol_occupancies = arrays.get(KEY_OCCUPANCY, np.full(n_atoms, 1.0))
-        mol_groups = arrays.get(KEY_DISORDER_GROUP, np.full(n_atoms, 0, dtype=int))
-        mol_assemblies = arrays.get(KEY_ASSEMBLY, np.array([""] * n_atoms))
-        mol_labels = arrays.get(KEY_LABEL, np.array(mol_symbols))
-
-        symbols.extend(mol_symbols)
-        positions.extend(mol.get_positions())
-        occupancies.extend(mol_occupancies)
-        disorder_groups.extend(mol_groups)
-        assemblies.extend(mol_assemblies)
-        labels.extend(mol_labels)
-
-    if not symbols:
+    if n_total == 0:
         raise ValueError("Cannot write POSCAR for an empty MolecularCrystal")
 
-    atoms = Atoms(
-        symbols=symbols,
-        positions=np.asarray(positions, dtype=float),
-        cell=crystal.lattice,
-        pbc=crystal.pbc,
+    occupancies = np.full(n_total, 1.0)
+    disorder_groups = np.zeros(n_total, dtype=int)
+    assemblies = np.array([""] * n_total, dtype=object)
+    labels = np.array(symbols, dtype=object)
+
+    indices_lists = [
+        mol.info.get("atom_indices")
+        for mol in crystal.molecules
+    ]
+    flat_indices = [
+        int(index)
+        for indices in indices_lists
+        if indices is not None
+        for index in indices
+    ]
+    use_global_indices = (
+        all(indices is not None for indices in indices_lists)
+        and len(flat_indices) == n_total
+        and set(flat_indices) == set(range(n_total))
     )
+
+    cursor = 0
+    for mol, indices in zip(crystal.molecules, indices_lists):
+        n_atoms = len(mol)
+        arrays = getattr(mol, "arrays", {})
+        if use_global_indices:
+            targets = np.array([int(index) for index in indices], dtype=int)
+        else:
+            targets = np.arange(cursor, cursor + n_atoms, dtype=int)
+        cursor += n_atoms
+
+        if KEY_OCCUPANCY in arrays:
+            occupancies[targets] = arrays[KEY_OCCUPANCY]
+        if KEY_DISORDER_GROUP in arrays:
+            disorder_groups[targets] = arrays[KEY_DISORDER_GROUP]
+        if KEY_ASSEMBLY in arrays:
+            assemblies[targets] = arrays[KEY_ASSEMBLY]
+        if KEY_LABEL in arrays:
+            labels[targets] = arrays[KEY_LABEL]
 
     dropped = {}
     occupancy_count = sum(

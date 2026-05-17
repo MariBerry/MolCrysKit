@@ -200,6 +200,7 @@ class MolecularCrystal:
             for molecule in self.molecules:
                 # Create a copy of the ASE Atoms object
                 new_atoms = molecule.copy()
+                new_atoms.info.pop("atom_indices", None)
                 # Apply translation
                 new_atoms.positions += np.dot(translation, self.lattice)
                 new_molecules.append(new_atoms)
@@ -408,6 +409,41 @@ class MolecularCrystal:
         Atoms
             An ASE Atoms object representing the entire crystal structure.
         """
+
+        n_total = sum(len(molecule) for molecule in self.molecules)
+        indices_lists = [
+            molecule.info.get("atom_indices")
+            for molecule in self.molecules
+        ]
+        flat_indices = [
+            int(index)
+            for indices in indices_lists
+            if indices is not None
+            for index in indices
+        ]
+        can_restore_order = (
+            n_total > 0
+            and all(indices is not None for indices in indices_lists)
+            and len(flat_indices) == n_total
+            and set(flat_indices) == set(range(n_total))
+        )
+
+        if can_restore_order:
+            symbols = [None] * n_total
+            positions = np.zeros((n_total, 3), dtype=float)
+            for molecule, indices in zip(self.molecules, indices_lists):
+                molecule_symbols = molecule.get_chemical_symbols()
+                molecule_positions = molecule.get_positions()
+                for local_index, global_index in enumerate(indices):
+                    global_index = int(global_index)
+                    symbols[global_index] = molecule_symbols[local_index]
+                    positions[global_index] = molecule_positions[local_index]
+            return Atoms(
+                symbols=symbols,
+                positions=positions,
+                cell=self.lattice,
+                pbc=self.pbc,
+            )
 
         symbols, positions = [], []
         for molecule in self.molecules:
