@@ -4,7 +4,15 @@ Output functionality for molecular crystal structures.
 This module provides functions for writing molecular crystal data to various formats.
 """
 
+from io import StringIO
+from typing import Optional
+import warnings
+
 import numpy as np
+from ase import Atoms
+from ase.constraints import FixScaled
+from ase.io.vasp import write_vasp
+
 from ..structures.molecule import CrystalMolecule
 from ..structures.crystal import MolecularCrystal
 
@@ -232,6 +240,160 @@ def write_cif(crystal: MolecularCrystal, filename: str = None, metadata: dict = 
             f.write(cif_string)
 
     return cif_string
+
+
+def write_poscar(
+    crystal: MolecularCrystal,
+    filename: Optional[str] = None,
+    *,
+    comment: Optional[str] = None,
+    direct: bool = True,
+    wrap: bool = False,
+    sort: bool = True,
+    selective_dynamics: Optional[np.ndarray] = None,
+) -> str:
+    """
+    Write a crystal structure to VASP POSCAR/CONTCAR format.
+
+    POSCAR can represent lattice vectors, species, positions, and optional
+    selective-dynamics flags, but it cannot represent MolCrysKit metadata such
+    as occupancy, disorder groups, assemblies, or atom labels. Non-default
+    metadata are therefore dropped with a warning and summarized in the POSCAR
+    comment line.
+
+    Parameters
+    ----------
+    crystal : MolecularCrystal
+        The crystal to write.
+    filename : str, optional
+        The filename to write to. If None, only returns the POSCAR string.
+    comment : str, optional
+        Comment line to use as POSCAR line 1. A lossy-export note is appended
+        when metadata must be dropped.
+    direct : bool, default=True
+        If True, write Direct coordinates. If False, write Cartesian positions.
+    wrap : bool, default=False
+        If True, wrap atomic positions into the unit cell before writing. The
+        default preserves MolCrysKit's unwrapped, contiguous molecule geometry.
+    sort : bool, default=True
+        If True, let ASE group atoms alphabetically by element for VASP output.
+    selective_dynamics : np.ndarray, optional
+        VASP-style boolean flags with shape ``(n_atoms, 3)``. True writes ``T``
+        (coordinate free to move) and False writes ``F`` (coordinate fixed).
+
+    Returns
+    -------
+    str
+        POSCAR format string.
+    """
+    from ..constants.config import (
+        KEY_ASSEMBLY,
+        KEY_DISORDER_GROUP,
+        KEY_LABEL,
+        KEY_OCCUPANCY,
+    )
+
+    symbols = []
+    positions = []
+    occupancies = []
+    disorder_groups = []
+    assemblies = []
+    labels = []
+
+    for mol in crystal.molecules:
+        mol_symbols = mol.get_chemical_symbols()
+        n_atoms = len(mol)
+        arrays = getattr(mol, "arrays", {})
+
+        mol_occupancies = arrays.get(KEY_OCCUPANCY, np.full(n_atoms, 1.0))
+        mol_groups = arrays.get(KEY_DISORDER_GROUP, np.full(n_atoms, 0, dtype=int))
+        mol_assemblies = arrays.get(KEY_ASSEMBLY, np.array([""] * n_atoms))
+        mol_labels = arrays.get(KEY_LABEL, np.array(mol_symbols))
+
+        symbols.extend(mol_symbols)
+        positions.extend(mol.get_positions())
+        occupancies.extend(mol_occupancies)
+        disorder_groups.extend(mol_groups)
+        assemblies.extend(mol_assemblies)
+        labels.extend(mol_labels)
+
+    if not symbols:
+        raise ValueError("Cannot write POSCAR for an empty MolecularCrystal")
+
+    atoms = Atoms(
+        symbols=symbols,
+        positions=np.asarray(positions, dtype=float),
+        cell=crystal.lattice,
+        pbc=crystal.pbc,
+    )
+
+    dropped = {}
+    occupancy_count = sum(
+        not np.isclose(float(occ), 1.0) for occ in occupancies
+    )
+    if occupancy_count:
+        dropped["occupancy"] = occupancy_count
+
+    disorder_count = sum(int(group) != 0 for group in disorder_groups)
+    if disorder_count:
+        dropped["disorder_group"] = disorder_count
+
+    assembly_count = sum(str(assembly).strip() not in {"", "."} for assembly in assemblies)
+    if assembly_count:
+        dropped["assembly"] = assembly_count
+
+    label_count = 0
+    for atom_index, (symbol, label) in enumerate(zip(symbols, labels), start=1):
+        label_text = str(label).strip()
+        default_labels = {"", ".", symbol, f"{symbol}{atom_index}"}
+        if label_text not in default_labels:
+            label_count += 1
+    if label_count:
+        dropped["label"] = label_count
+
+    lossy_summary = ", ".join(f"{key}:{value}" for key, value in dropped.items())
+    if dropped:
+        warnings.warn(
+            "write_poscar: POSCAR cannot represent MolCrysKit metadata; "
+            f"dropping {lossy_summary}",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    if wrap:
+        atoms.wrap()
+
+    if selective_dynamics is not None:
+        flags = np.asarray(selective_dynamics, dtype=bool)
+        expected_shape = (len(atoms), 3)
+        if flags.shape != expected_shape:
+            raise ValueError(
+                "selective_dynamics must have shape "
+                f"{expected_shape}, got {flags.shape}"
+            )
+        atoms.set_constraint(
+            [
+                FixScaled(i, mask=tuple(~flags[i]))
+                for i in range(len(atoms))
+            ]
+        )
+
+    base_comment = comment or f"MolCrysKit {atoms.get_chemical_formula()}"
+    line1 = base_comment
+    if lossy_summary:
+        line1 = f"{base_comment} | MolCrysKit lossy export: dropped {lossy_summary}"
+
+    buffer = StringIO()
+    write_vasp(buffer, atoms, direct=direct, sort=sort, vasp5=True)
+    lines = buffer.getvalue().splitlines()
+    lines[0] = line1
+    poscar_string = "\n".join(lines) + "\n"
+
+    if filename is not None:
+        with open(filename, "w") as f:
+            f.write(poscar_string)
+
+    return poscar_string
 
 
 def write_vesta(crystal: MolecularCrystal, filename: str = None) -> str:
