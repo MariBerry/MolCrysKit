@@ -85,8 +85,8 @@ import networkx as nx
 from ase import Atoms
 from ase.neighborlist import neighbor_list
 
-from ..analysis.cluster_provenance import ClusterProvenance
 from ..analysis.interactions import get_bonding_threshold
+from ..structures.cluster import ClusterProvenance
 from ..constants import (
     DEFAULT_NEIGHBOR_CUTOFF,
     get_atomic_radius,

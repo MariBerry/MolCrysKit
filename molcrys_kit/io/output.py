@@ -70,7 +70,7 @@ def write_xyz_with_freeze(
       The numerical XYZ block remains a valid XYZ stream for tools that
       ignore extra trailing tokens.
     * ``<sidecar_path>`` (default ``<filename>.cluster.json``) -- the
-      full :class:`molcrys_kit.analysis.cluster_provenance.ClusterProvenance`
+      full :class:`molcrys_kit.structures.cluster.ClusterProvenance`
       payload via ``to_dict``.  This is the canonical machine-readable
       record consumed by downstream Gaussian / ORCA input writers
       (kept out of this package on purpose; see
@@ -93,8 +93,8 @@ def write_xyz_with_freeze(
     str
         Absolute path of the JSON sidecar that was written.
     """
-    # Local import to avoid a cycle (operations -> structures.cluster ->
-    # analysis.cluster_provenance, all loaded eagerly).
+    # Local import to avoid a cycle (operations -> structures.cluster,
+    # all loaded eagerly).
     from ..structures.cluster import CrystalCluster
 
     if not isinstance(cluster, CrystalCluster):

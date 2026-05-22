@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 from ase import Atoms
 
-from molcrys_kit.analysis.cluster_provenance import ClusterProvenance
+from molcrys_kit.structures.cluster import ClusterProvenance
 from molcrys_kit.io import write_xyz_with_freeze
 from molcrys_kit.operations import (
     ClusterCarver,
