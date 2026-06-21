@@ -326,6 +326,14 @@ class TestDisorderSolver:
             ("C", "N"),
         ]
 
+    def test_enumerate_caps_at_one_structure(self, multi_part_setup):
+        info, graph, lattice = multi_part_setup
+        solver = DisorderSolver(info, graph, lattice)
+        results = solver.solve(num_structures=1, method="enumerate")
+
+        assert len(results) == 1
+        assert _crystal_symbol_signature(results[0]) == ("C", "N")
+
     def test_optimal_prefers_highest_occupancy_parts(self, multi_part_setup):
         info, graph, lattice = multi_part_setup
         solver = DisorderSolver(info, graph, lattice)

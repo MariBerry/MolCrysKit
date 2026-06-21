@@ -126,12 +126,6 @@ def _canonical_sign(hkl: Sequence[int], include_negative: bool = False) -> Mille
     return hkl_tuple  # pragma: no cover; (0, 0, 0) is filtered upstream
 
 
-def _canonical_hkl(hkl: Sequence[int], include_negative: bool = False) -> MillerIndex:
-    """Canonicalize a Miller index without reducing its order."""
-
-    return _canonical_sign(hkl, include_negative=include_negative)
-
-
 def enumerate_low_index_millers(
     max_index: int = 2,
     *,
@@ -153,7 +147,7 @@ def enumerate_low_index_millers(
             for l in range(-max_index, max_index + 1):
                 if h == k == l == 0:
                     continue
-                candidates.add(_canonical_hkl((h, k, l), include_negative=include_negative))
+                candidates.add(_canonical_sign((h, k, l), include_negative=include_negative))
 
     return sorted(
         candidates,
@@ -167,7 +161,7 @@ def _deduplicate_millers(
     include_negative: bool = False,
 ) -> list[MillerIndex]:
     candidates = {
-        _canonical_hkl(hkl, include_negative=include_negative)
+        _canonical_sign(hkl, include_negative=include_negative)
         for hkl in miller_indices
         if tuple(int(round(x)) for x in hkl) != (0, 0, 0)
     }
@@ -240,9 +234,9 @@ def _reciprocal_symmetry_millers(
             continue
         if _gcd3(transformed) != target_order:
             continue
-        equivalents.add(_canonical_hkl(transformed, include_negative=include_negative))
+        equivalents.add(_canonical_sign(transformed, include_negative=include_negative))
 
-    equivalents.add(_canonical_hkl(hkl, include_negative=include_negative))
+    equivalents.add(_canonical_sign(hkl, include_negative=include_negative))
     return tuple(sorted(equivalents))
 
 
@@ -270,12 +264,12 @@ def _is_systematically_allowed(
             return True
 
     hkl_arr = np.asarray(hkl, dtype=int)
-    canonical = _canonical_hkl(hkl)
+    canonical = _canonical_sign(hkl)
     phases: list[complex] = []
     for op in operations:
         rotation = np.rint(op.rotation_matrix).astype(int)
         transformed = tuple(int(x) for x in rotation.T @ hkl_arr)
-        if _canonical_hkl(transformed) == canonical:
+        if _canonical_sign(transformed) == canonical:
             phase = np.exp(2j * np.pi * float(np.dot(hkl_arr, op.translation_vector)))
             phases.append(complex(phase))
 
@@ -324,8 +318,9 @@ def _filter_extinctions(
                 tuple(-v for v in eq),
             ),
         )
-        representative_map[_canonical_hkl(hkl, include_negative=include_negative)] = tuple(sorted(allowed_equivalents))
-        if representative != _canonical_hkl(hkl, include_negative=include_negative):
+        canonical_hkl = _canonical_sign(hkl, include_negative=include_negative)
+        representative_map[canonical_hkl] = tuple(sorted(allowed_equivalents))
+        if representative != canonical_hkl:
             representative_map[representative] = tuple(sorted(allowed_equivalents))
 
     return representative_map
@@ -377,8 +372,8 @@ def _equivalent_millers(
         # Do not reduce order: (2, 0, 0) and (1, 0, 0) are distinct BFDH planes.
         if _gcd3(transformed) != _gcd3(hkl):
             continue
-        equivalents.add(_canonical_hkl(transformed, include_negative=include_negative))
-    equivalents.add(_canonical_hkl(hkl, include_negative=include_negative))
+        equivalents.add(_canonical_sign(transformed, include_negative=include_negative))
+    equivalents.add(_canonical_sign(hkl, include_negative=include_negative))
     return tuple(sorted(equivalents))
 
 

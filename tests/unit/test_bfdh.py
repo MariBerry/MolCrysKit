@@ -6,6 +6,7 @@ from pymatgen.core import Lattice, Structure
 
 from molcrys_kit.analysis.bfdh import (
     BFDHFacetInfo,
+    _d_hkl,
     enumerate_bfdh_facets,
     enumerate_low_index_millers,
 )
@@ -64,6 +65,11 @@ def test_bfdh_rejects_invalid_arguments():
         enumerate_bfdh_facets(lattice, max_index=0)
     with pytest.raises(ValueError):
         enumerate_bfdh_facets(lattice, top_n=0)
+
+
+def test_d_hkl_rejects_zero_miller_index():
+    with pytest.raises(ValueError, match="zero length"):
+        _d_hkl(Lattice.cubic(4.0), (0, 0, 0))
 
 
 def test_bfdh_uses_pymatgen_symmetry_backend_for_structure():

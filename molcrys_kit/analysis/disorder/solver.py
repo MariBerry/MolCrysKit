@@ -1164,9 +1164,9 @@ class DisorderSolver:
         if not component_alternatives:
             return []
 
-        # In enumerate mode, the default num_structures=1 means "all"; callers
-        # can pass a value >1 to request the top-N most probable combinations.
-        limit = num_structures if num_structures and num_structures > 1 else None
+        # In enumerate mode, any positive num_structures is a top-N cap.
+        # Use None or a non-positive value only for exhaustive enumeration.
+        limit = num_structures if num_structures and num_structures > 0 else None
         if limit is None:
             total = 1
             for alternatives in component_alternatives:
@@ -1569,7 +1569,7 @@ class DisorderSolver:
 
     def solve(
         self,
-        num_structures: int = 1,
+        num_structures: Optional[int] = None,
         method: str = "optimal",
         random_seed: Optional[int] = None,
         return_kept_indices: bool = False,
@@ -1579,9 +1579,10 @@ class DisorderSolver:
 
         Parameters:
         -----------
-        num_structures : int
-            Number of structures to generate for 'random', and an optional
-            top-N cap for 'enumerate' when greater than 1.
+        num_structures : int, optional
+            Number of structures to generate for 'random', and a top-N cap
+            for 'enumerate' when positive.  For direct solver use, None keeps
+            enumerate mode exhaustive and random mode defaults to one.
         method : str
             'optimal' for the single greedy MWIS structure, 'random' for
             occupancy-weighted sampling across PART/SP alternatives, and
@@ -1627,7 +1628,7 @@ class DisorderSolver:
         elif method == "random":
             rng = _random_module.Random(random_seed)
             try:
-                independent_sets = self._solve_random(num_structures, rng)
+                independent_sets = self._solve_random(num_structures or 1, rng)
             except Exception:
                 logger.exception(
                     "PART-aware random solve failed; falling back to shuffled MIS"
