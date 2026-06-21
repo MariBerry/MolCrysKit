@@ -20,6 +20,9 @@ This document serves as a placeholder for the MolCrysKit API reference. The API 
 - [generate_vacancy](../molcrys_kit/operations/defects.py): Function to generate vacancies by removing molecular clusters
 
 ### molcrys_kit.analysis
+- [BFDHFacetInfo](../molcrys_kit/analysis/bfdh.py): Dataclass describing one Bravais-Friedel-Donnay-Harker facet candidate, including Miller index, interplanar spacing, normalized growth-rate proxy, normalized morphological-importance proxy, and optional symmetry equivalents
+- [enumerate_bfdh_facets](../molcrys_kit/analysis/bfdh.py): Enumerate model-agnostic BFDH facet candidates from a molecular crystal, pymatgen lattice/structure, or 3x3 lattice matrix; by default searches low-index Miller indices up to `max_index=2` and applies Donnay-Harker-style systematic-absence filtering when structure symmetry is available
+- [enumerate_low_index_millers](../molcrys_kit/analysis/bfdh.py): Deterministic fallback low-index Miller enumerator used when pymatgen symmetry enumeration is disabled or unavailable
 - [DisorderSolver](../molcrys_kit/analysis/disorder/solver.py): Class for solving disorder problems using graph algorithms
 - [generate_ordered_replicas_from_disordered_sites](../molcrys_kit/analysis/disorder/process.py): Resolve disordered CIFs with `method="optimal"` (single greedy MWIS), `method="random"` (occupancy-weighted PART/SP sampling, optionally seeded), or `method="enumerate"` (deterministic Cartesian enumeration of independent alternatives).  By default `coupled=False` lets symmetry-equivalent copies choose PART/SP orientations independently (e.g. a two-copy PART 1/2 site can enumerate `AA`, `AB`, `BA`, `BB`); pass `coupled=True` to preserve the legacy all-copies-locked behaviour.
 - [DisorderGraphBuilder](../molcrys_kit/analysis/disorder/graph.py): Class for building exclusion graphs from disorder data
