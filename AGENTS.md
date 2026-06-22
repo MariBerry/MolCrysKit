@@ -11,12 +11,12 @@ read the relevant module before modifying it.
 ```
 molcrys_kit/
   analysis/           Disorder resolution, packing shells, cluster invariants
-  io/                 CIF parser
+  io/                 Structural parser
   operations/         Cluster carving, surface, hydrogens, perturbation, …
   structures/         MolecularCrystal, Molecule, CrystalCluster types
   constants/          Element radii, bond lengths, config thresholds
-examples/             CIF files (also used by regression tests)
-scripts/              One-off diagnostics / repro scripts
+examples/             
+scripts/              Best practice; one-off diagnosis scripts
 tests/unit/           Pytest regression suite
 ```
 
@@ -40,9 +40,13 @@ tests/unit/           Pytest regression suite
 - **Read the module docstring first.** Most modules document their design
   constraints (two-path architecture, solver modes, carve invariants, etc.)
   in the module or class docstring. Respect those constraints.
-- **Prefer additive changes.** When fixing a new edge case, add a new
-  processing step or extend an existing code path rather than rewriting
-  core logic. The regression suite is large and brittle to rewrites.
+- **Prefer additive changes.** Extend existing code paths rather than
+  rewriting core logic; the regression suite is brittle to rewrites.
+  Separate refactor PRs with full test validation are fine when needed.
+- **No magic numbers.** Put thresholds and constants in
+  `molcrys_kit/constants/`; reuse existing ones before adding new ones.
+- **Reuse before reinventing.** Check existing modules and utilities
+  before writing new logic.
 - **Do not hardcode version strings.** Version is derived from git tags
   via `setuptools_scm` → `molcrys_kit/_version.py` (gitignored).
 
