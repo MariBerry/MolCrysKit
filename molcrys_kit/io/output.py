@@ -7,7 +7,7 @@ This module provides functions for writing molecular crystal data to various for
 import json
 import os
 from io import StringIO
-from typing import Optional
+from typing import Optional, Sequence
 import warnings
 
 import numpy as np
@@ -505,6 +505,70 @@ def write_poscar(
             f.write(poscar_string)
 
     return poscar_string
+
+
+def write_poscar_sequence(
+    crystals: Sequence[MolecularCrystal],
+    directory: str,
+    *,
+    padding: int = 2,
+    filename: str = "POSCAR",
+    comment_prefix: Optional[str] = None,
+    **poscar_kwargs,
+) -> list[str]:
+    """Write interpolated crystal frames as a VASP image directory sequence.
+
+    Frames are written as ``directory/00/POSCAR``, ``directory/01/POSCAR``, ...
+    by default. Additional keyword arguments are forwarded to
+    :func:`write_poscar`.
+    """
+    if not crystals:
+        raise ValueError("Cannot write an empty POSCAR sequence")
+    os.makedirs(directory, exist_ok=True)
+    written = []
+    for index, crystal in enumerate(crystals):
+        image_dir = os.path.join(directory, f"{index:0{padding}d}")
+        os.makedirs(image_dir, exist_ok=True)
+        path = os.path.join(image_dir, filename)
+        kwargs = dict(poscar_kwargs)
+        if comment_prefix is not None and "comment" not in kwargs:
+            kwargs["comment"] = f"{comment_prefix} image={index}"
+        write_poscar(crystal, path, **kwargs)
+        written.append(os.path.abspath(path))
+    return written
+
+
+def write_cif_sequence(
+    crystals: Sequence[MolecularCrystal],
+    directory: str,
+    *,
+    prefix: str = "frame",
+    padding: int = 3,
+    metadata: Optional[dict] = None,
+) -> list[str]:
+    """Write interpolated crystal frames as individual CIF files."""
+    if not crystals:
+        raise ValueError("Cannot write an empty CIF sequence")
+    os.makedirs(directory, exist_ok=True)
+    written = []
+    for index, crystal in enumerate(crystals):
+        path = os.path.join(directory, f"{prefix}_{index:0{padding}d}.cif")
+        write_cif(crystal, path, metadata=metadata)
+        written.append(os.path.abspath(path))
+    return written
+
+
+def write_trajectory(
+    crystals: Sequence[MolecularCrystal],
+    filename: str,
+    *,
+    format: str = "extxyz",
+) -> str:
+    """Reserve trajectory export API for upcoming multi-frame formats."""
+    raise NotImplementedError(
+        f"Trajectory format {format!r} is not implemented yet; "
+        "use write_poscar_sequence or write_cif_sequence for now."
+    )
 
 
 def write_vesta(crystal: MolecularCrystal, filename: str = None) -> str:
