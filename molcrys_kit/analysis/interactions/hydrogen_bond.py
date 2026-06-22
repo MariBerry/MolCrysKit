@@ -183,7 +183,6 @@ def find_hydrogen_bonds(
             (i, j)
             for i in range(len(molecules))
             for j in range(len(molecules))
-            if i != j
         ]
 
     for donor_mol_idx, acceptor_mol_idx in molecule_pairs:
@@ -213,6 +212,8 @@ def find_hydrogen_bonds(
                 donor_atom_pos = donor_positions[donor_atom_idx]
                 h_pos = donor_positions[hydrogen_idx]
                 for image in images:
+                    if donor_mol_idx == acceptor_mol_idx and image == (0, 0, 0):
+                        continue
                     translation = (
                         np.asarray(image_translation(lattice, image), dtype=float)
                         if lattice is not None

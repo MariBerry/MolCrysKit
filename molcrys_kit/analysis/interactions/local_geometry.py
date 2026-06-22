@@ -110,7 +110,7 @@ class LocalGeometry:
         symbols = self.molecule.get_chemical_symbols()
 
         for cycle in self.env.rings():
-            atom_indices = tuple(int(i) for i in cycle)
+            atom_indices = tuple(sorted(int(i) for i in cycle))
             size = len(atom_indices)
             is_aromatic = all(
                 size in self.env.atom_aromatic_ring_sizes(i) for i in atom_indices

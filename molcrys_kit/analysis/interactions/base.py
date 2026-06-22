@@ -125,7 +125,7 @@ class RingRef:
         image: Image = (0, 0, 0),
     ) -> "RingRef":
         """Build a ring reference from molecule-local atom indices."""
-        atom_indices = tuple(int(i) for i in atom_indices)
+        atom_indices = tuple(sorted(int(i) for i in atom_indices))
         return cls(
             molecule_index=int(molecule_index),
             atom_indices=atom_indices,

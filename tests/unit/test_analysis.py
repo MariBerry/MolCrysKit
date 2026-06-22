@@ -9,8 +9,16 @@ from ase import Atoms
 
 from molcrys_kit.analysis.species import identify_molecules, assign_atoms_to_molecules
 from molcrys_kit.analysis.interactions import (
+    CHPiInteraction,
+    HHContact,
+    HalogenBond,
     HydrogenBond,
+    PiStacking,
+    find_ch_pi,
+    find_h_h_contacts,
+    find_halogen_bonds,
     find_hydrogen_bonds,
+    find_pi_stacking,
     get_bonding_threshold,
 )
 from molcrys_kit.constants import (
@@ -153,6 +161,75 @@ class TestGetBondingThreshold:
         expected = (1.0 + 1.0) * METAL_NON_METAL_THRESHOLD_FACTOR
         assert get_bonding_threshold(1.0, 1.0, True, False) == pytest.approx(expected)
         assert get_bonding_threshold(1.0, 1.0, False, True) == pytest.approx(expected)
+
+
+def _benzene_like_molecule(z: float = 0.0) -> CrystalMolecule:
+    radius = 1.39
+    angles = np.linspace(0, 2 * np.pi, 6, endpoint=False)
+    positions = [[radius * np.cos(a), radius * np.sin(a), z] for a in angles]
+    return CrystalMolecule(Atoms(["C"] * 6, positions=positions))
+
+
+class TestAdditionalInteractionDetectors:
+    """Halogen-bond, pi-stacking, C-H/pi, and H-H contact detectors."""
+
+    def test_find_halogen_bonds_detects_linear_cl_acceptor(self):
+        donor = CrystalMolecule(Atoms(["C", "Cl"], positions=[[0, 0, 0], [1.7, 0, 0]]))
+        acceptor = CrystalMolecule(Atoms(["O"], positions=[[4.7, 0, 0]]))
+
+        bonds = find_halogen_bonds([donor, acceptor])
+
+        assert len(bonds) == 1
+        bond = bonds[0]
+        assert isinstance(bond, HalogenBond)
+        assert bond.donor.atom_index == 0
+        assert bond.halogen.atom_index == 1
+        assert bond.acceptor.atom_index == 0
+        assert bond.x_acceptor_distance_A == pytest.approx(3.0)
+        assert bond.dxa_angle_deg == pytest.approx(180.0)
+
+    def test_find_pi_stacking_detects_parallel_aromatic_rings(self):
+        ring1 = _benzene_like_molecule(z=0.0)
+        ring2 = _benzene_like_molecule(z=3.4)
+
+        stacks = find_pi_stacking([ring1, ring2])
+
+        assert len(stacks) == 1
+        stack = stacks[0]
+        assert isinstance(stack, PiStacking)
+        assert stack.ring1.atom_indices == (0, 1, 2, 3, 4, 5)
+        assert stack.ring2.atom_indices == (0, 1, 2, 3, 4, 5)
+        assert stack.centroid_distance_A == pytest.approx(3.4)
+        assert stack.normal_angle_deg == pytest.approx(0.0)
+        assert stack.lateral_offset_A == pytest.approx(0.0)
+
+    def test_find_ch_pi_detects_ch_to_aromatic_centroid(self):
+        donor = CrystalMolecule(Atoms(["C", "H"], positions=[[0, 0, 2.5], [0, 0, 1.4]]))
+        ring = _benzene_like_molecule(z=0.0)
+
+        interactions = find_ch_pi([donor, ring])
+
+        assert len(interactions) == 1
+        interaction = interactions[0]
+        assert isinstance(interaction, CHPiInteraction)
+        assert interaction.carbon.atom_index == 0
+        assert interaction.hydrogen.atom_index == 1
+        assert interaction.ring.atom_indices == (0, 1, 2, 3, 4, 5)
+        assert interaction.h_centroid_distance_A == pytest.approx(1.4)
+        assert interaction.ch_centroid_angle_deg == pytest.approx(180.0)
+
+    def test_find_h_h_contacts_detects_intermediate_contact(self):
+        mol1 = CrystalMolecule(Atoms(["H"], positions=[[0, 0, 0]]))
+        mol2 = CrystalMolecule(Atoms(["H"], positions=[[2.0, 0, 0]]))
+
+        contacts = find_h_h_contacts([mol1, mol2])
+
+        assert len(contacts) == 1
+        contact = contacts[0]
+        assert isinstance(contact, HHContact)
+        assert contact.hydrogen1.atom_index == 0
+        assert contact.hydrogen2.atom_index == 0
+        assert contact.h_h_distance_A == pytest.approx(2.0)
 
 
 # =====================================================================
