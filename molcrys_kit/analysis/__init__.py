@@ -1,6 +1,7 @@
 from .interactions import *
 from .species import *
 from .stoichiometry import *
+from .bfdh import BFDHFacetInfo, enumerate_bfdh_facets, enumerate_low_index_millers
 from .chemical_env import ChemicalEnvironment
 from .formula_moiety import Fragment, heavy_signature, match_molecule_to_fragment, parse_moiety_string
 from .charge import MolChargeResult, assign_mol_formal_charges, compute_topo_signature
@@ -20,6 +21,7 @@ from .shape import classify_shell, cshm, topology_signature
 
 
 __all__ = [
+    "BFDHFacetInfo",
     "ChemicalEnvironment",
     "Fragment",
     "MolChargeResult",
@@ -37,6 +39,8 @@ __all__ = [
     "parse_moiety_string",
     "detect_coordination_number",
     "detect_prism_vs_antiprism",
+    "enumerate_bfdh_facets",
+    "enumerate_low_index_millers",
     "find_polyhedra",
     "hull_encloses_center",
     "planarity_analysis",

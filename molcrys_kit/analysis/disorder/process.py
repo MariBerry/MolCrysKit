@@ -28,8 +28,10 @@ def generate_ordered_replicas_from_disordered_sites(
     filepath : str
         Path to the CIF file
     generate_count : int
-        Number of structures to generate for 'random', and an optional
-        top-N cap for 'enumerate' when greater than 1.
+        Number of structures to generate for 'random', and a top-N cap for
+        'enumerate' when positive.  The high-level file API defaults to one
+        generated replica; pass 0/None through ``DisorderSolver`` directly for
+        exhaustive enumeration.
     method : str
         'optimal' for single best structure, 'random' for occupancy-weighted
         sampling, or 'enumerate' for deterministic PART/SP alternative

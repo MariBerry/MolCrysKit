@@ -113,6 +113,50 @@ write_cif(slab, 'slab.cif')
 slab_atoms_obj = slab.to_ase()
 ```
 
+## BFDH Facet Candidate Enumeration
+
+MolCrysKit can propose model-agnostic surface candidates using the
+Bravais-Friedel-Donnay-Harker (BFDH) morphology rule.  Pure BFDH ranks facets
+by interplanar spacing: planes with larger `d_hkl` are assigned lower relative
+growth rates and therefore higher morphological importance.  This is a fast
+empirical candidate generator, not a surface-energy calculation.
+
+### Basic Usage
+
+```python
+from molcrys_kit.io.cif import read_mol_crystal
+from molcrys_kit.analysis import enumerate_bfdh_facets
+from molcrys_kit.operations import generate_slabs_with_terminations
+
+crystal = read_mol_crystal("bulk.cif")
+
+# Default: low-index Miller indices up to max_index=2, with
+# Donnay-Harker-style systematic-absence filtering when structure symmetry is
+# available.
+facets = enumerate_bfdh_facets(crystal, top_n=5, include_equivalents=True)
+for facet in facets:
+  print(
+    facet.rank,
+    facet.miller_index,
+    f"d={facet.d_hkl:.3f} Å",
+    f"importance={facet.relative_morphological_importance:.3f}",
+  )
+
+# Downstream slab generation remains explicit and topology-aware.
+best = facets[0]
+slabs = generate_slabs_with_terminations(
+  crystal,
+  miller_index=best.miller_index,
+  term_selection="tasker_preferred",
+)
+```
+
+Use `miller_indices=[...]` to rank a manually curated list instead of the
+default low-index search.  Pass `extinction_filter=False` for pure Friedel
+`d_hkl` ranking without systematic-absence filtering.  If desired, pass the
+returned candidates to external surface-energy or adsorption workflows for post
+hoc re-ranking.
+
 ## Defect Engineering
 
 Placeholder section for defect engineering functionality covering vacancy generation logic found in [molcrys_kit/operations/defects.py](../molcrys_kit/operations/defects.py). This includes the [VacancyGenerator](../molcrys_kit/operations/defects.py) class and the public API function [generate_vacancy](../molcrys_kit/operations/defects.py) which enable the systematic removal of specific molecular clusters based on spatial relationships. The implementation considers stoichiometric constraints and preserves the overall molecular crystal structure while introducing controlled defects.
