@@ -14,6 +14,7 @@ from molcrys_kit.analysis.interactions import (
     HalogenBond,
     HydrogenBond,
     PiStacking,
+    PiStackingCriteria,
     find_ch_pi,
     find_h_h_contacts,
     find_halogen_bonds,
@@ -170,6 +171,15 @@ def _benzene_like_molecule(z: float = 0.0) -> CrystalMolecule:
     return CrystalMolecule(Atoms(["C"] * 6, positions=positions))
 
 
+def _rotate_points(points, rotation_matrix):
+    pts = np.asarray(points, dtype=float)
+    return pts @ np.asarray(rotation_matrix, dtype=float).T
+
+
+def _benzene_like_molecule_from_positions(positions) -> CrystalMolecule:
+    return CrystalMolecule(Atoms(["C"] * 6, positions=np.asarray(positions, dtype=float)))
+
+
 class TestAdditionalInteractionDetectors:
     """Halogen-bond, pi-stacking, C-H/pi, and H-H contact detectors."""
 
@@ -202,6 +212,51 @@ class TestAdditionalInteractionDetectors:
         assert stack.centroid_distance_A == pytest.approx(3.4)
         assert stack.normal_angle_deg == pytest.approx(0.0)
         assert stack.lateral_offset_A == pytest.approx(0.0)
+        assert stack.subtype == "face_centered_parallel"
+
+    def test_find_pi_stacking_classifies_displaced_parallel(self):
+        ring1 = _benzene_like_molecule(z=0.0)
+        ring2 = _benzene_like_molecule_from_positions(
+            _benzene_like_molecule(z=3.4).get_positions() + np.array([1.2, 0.0, 0.0])
+        )
+
+        stacks = find_pi_stacking([ring1, ring2])
+
+        assert len(stacks) == 1
+        stack = stacks[0]
+        assert stack.subtype == "displaced_parallel"
+        assert stack.normal_angle_deg == pytest.approx(0.0)
+        assert stack.lateral_offset_A == pytest.approx(1.2)
+
+    def test_find_pi_stacking_classifies_t_shape(self):
+        ring1 = _benzene_like_molecule(z=0.0)
+        ring2_base = _benzene_like_molecule(z=0.0).get_positions()
+        rotation_y_90 = np.array(
+            [
+                [0.0, 0.0, 1.0],
+                [0.0, 1.0, 0.0],
+                [-1.0, 0.0, 0.0],
+            ]
+        )
+        ring2 = _benzene_like_molecule_from_positions(
+            _rotate_points(ring2_base, rotation_y_90) + np.array([0.0, 0.0, 3.4])
+        )
+
+        stacks = find_pi_stacking([ring1, ring2])
+
+        assert len(stacks) == 1
+        stack = stacks[0]
+        assert stack.subtype == "T_shape"
+        assert stack.normal_angle_deg == pytest.approx(90.0)
+        assert stack.lateral_offset_A == pytest.approx(0.0)
+
+    def test_pi_stacking_criteria_keeps_legacy_cutoff_names(self):
+        criteria = PiStackingCriteria(max_normal_angle_deg=25.0, max_lateral_offset_A=1.8)
+
+        assert criteria.max_parallel_normal_angle_deg == pytest.approx(25.0)
+        assert criteria.max_parallel_lateral_offset_A == pytest.approx(1.8)
+        assert criteria.max_normal_angle_deg == pytest.approx(25.0)
+        assert criteria.max_lateral_offset_A == pytest.approx(1.8)
 
     def test_find_ch_pi_detects_ch_to_aromatic_centroid(self):
         donor = CrystalMolecule(Atoms(["C", "H"], positions=[[0, 0, 2.5], [0, 0, 1.4]]))

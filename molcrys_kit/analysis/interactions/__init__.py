@@ -26,7 +26,7 @@ from .local_geometry import (
     LocalGeometryCache,
     RingGeometry,
 )
-from .pi_stacking import PiStacking, PiStackingCriteria, find_pi_stacking, find_pi_stacks
+from .pi_stacking import PiStacking, PiStackingCriteria, PiStackingSubtype, find_pi_stacking, find_pi_stacks
 
 __all__ = [
     "AtomLocalGeometry",
@@ -46,6 +46,7 @@ __all__ = [
     "LocalGeometryCache",
     "PiStacking",
     "PiStackingCriteria",
+    "PiStackingSubtype",
     "RingGeometry",
     "RingRef",
     "find_ch_pi",

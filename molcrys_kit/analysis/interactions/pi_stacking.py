@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, Literal, Sequence
 
 import numpy as np
 
@@ -14,15 +14,64 @@ from .identity import ChemicalIdentity, ChemicalIdentityCache
 from .local_geometry import RingGeometry, LocalGeometryCache
 
 
+PiStackingSubtype = Literal[
+    "face_centered_parallel",
+    "displaced_parallel",
+    "T_shape",
+]
+
+
 @dataclass(frozen=True)
 class PiStackingCriteria:
     """Geometric criteria for aromatic ring stacking."""
 
     max_centroid_distance_A: float = 4.5
-    max_normal_angle_deg: float = 30.0
-    max_lateral_offset_A: float = 2.0
+    max_parallel_normal_angle_deg: float = 30.0
+    min_t_shape_normal_angle_deg: float = 60.0
+    max_t_shape_normal_angle_deg: float = 120.0
+    max_face_centered_offset_A: float = 0.75
+    max_parallel_lateral_offset_A: float = 2.0
+    max_t_shape_lateral_offset_A: float = 2.5
     aromatic_only: bool = True
     search_radius_A: float | None = None
+
+    def __init__(
+        self,
+        max_centroid_distance_A: float = 4.5,
+        max_parallel_normal_angle_deg: float = 30.0,
+        min_t_shape_normal_angle_deg: float = 60.0,
+        max_t_shape_normal_angle_deg: float = 120.0,
+        max_face_centered_offset_A: float = 0.75,
+        max_parallel_lateral_offset_A: float = 2.0,
+        max_t_shape_lateral_offset_A: float = 2.5,
+        aromatic_only: bool = True,
+        search_radius_A: float | None = None,
+        max_normal_angle_deg: float | None = None,
+        max_lateral_offset_A: float | None = None,
+    ):
+        if max_normal_angle_deg is not None:
+            max_parallel_normal_angle_deg = max_normal_angle_deg
+        if max_lateral_offset_A is not None:
+            max_parallel_lateral_offset_A = max_lateral_offset_A
+        object.__setattr__(self, "max_centroid_distance_A", float(max_centroid_distance_A))
+        object.__setattr__(self, "max_parallel_normal_angle_deg", float(max_parallel_normal_angle_deg))
+        object.__setattr__(self, "min_t_shape_normal_angle_deg", float(min_t_shape_normal_angle_deg))
+        object.__setattr__(self, "max_t_shape_normal_angle_deg", float(max_t_shape_normal_angle_deg))
+        object.__setattr__(self, "max_face_centered_offset_A", float(max_face_centered_offset_A))
+        object.__setattr__(self, "max_parallel_lateral_offset_A", float(max_parallel_lateral_offset_A))
+        object.__setattr__(self, "max_t_shape_lateral_offset_A", float(max_t_shape_lateral_offset_A))
+        object.__setattr__(self, "aromatic_only", bool(aromatic_only))
+        object.__setattr__(self, "search_radius_A", search_radius_A)
+
+    @property
+    def max_normal_angle_deg(self) -> float:
+        """Backward-compatible alias for the parallel normal-angle cutoff."""
+        return self.max_parallel_normal_angle_deg
+
+    @property
+    def max_lateral_offset_A(self) -> float:
+        """Backward-compatible alias for the displaced-parallel offset cutoff."""
+        return self.max_parallel_lateral_offset_A
 
 
 @dataclass(init=False)
@@ -37,6 +86,7 @@ class PiStacking(BaseInteraction):
     normal_angle_deg: float
     plane_angle_deg: float
     lateral_offset_A: float
+    subtype: PiStackingSubtype
 
     def __init__(
         self,
@@ -46,6 +96,7 @@ class PiStacking(BaseInteraction):
         centroid_distance_A: float,
         normal_angle_deg: float,
         lateral_offset_A: float,
+        subtype: PiStackingSubtype,
         plane_angle_deg: float | None = None,
         molecule1_identity: ChemicalIdentity | None = None,
         molecule2_identity: ChemicalIdentity | None = None,
@@ -74,6 +125,7 @@ class PiStacking(BaseInteraction):
         self.normal_angle_deg = float(normal_angle_deg)
         self.plane_angle_deg = float(plane_angle)
         self.lateral_offset_A = float(lateral_offset_A)
+        self.subtype = subtype
 
 
 def find_pi_stacking(
@@ -133,7 +185,7 @@ def find_pi_stacking(
                         if key in seen:
                             continue
                         seen.add(key)
-                        ring1_ref, ring2_ref, distance, angle, offset = result
+                        ring1_ref, ring2_ref, distance, angle, offset, subtype = result
                         stacks.append(
                             PiStacking(
                                 ring1=ring1_ref,
@@ -141,6 +193,7 @@ def find_pi_stacking(
                                 centroid_distance_A=distance,
                                 normal_angle_deg=angle,
                                 lateral_offset_A=offset,
+                                subtype=subtype,
                                 molecule1_identity=identities[mol1_idx] if identities else None,
                                 molecule2_identity=identities[mol2_idx] if identities else None,
                                 image=tuple(int(v) for v in image),
@@ -167,15 +220,14 @@ def _evaluate_ring_pair(molecules, mol1_idx, mol2_idx, ring1: RingGeometry, ring
     n2 = np.asarray(ring2.normal, dtype=float)
     raw_angle = vector_angle_deg(n1, n2)
     normal_angle = min(raw_angle, 180.0 - raw_angle)
-    if normal_angle > criteria.max_normal_angle_deg:
-        return None
     n1_norm = np.linalg.norm(n1)
     if n1_norm == 0:
         return None
     n1_unit = n1 / n1_norm
     lateral_vec = centroid_vec - np.dot(centroid_vec, n1_unit) * n1_unit
     lateral_offset = float(np.linalg.norm(lateral_vec))
-    if lateral_offset > criteria.max_lateral_offset_A:
+    subtype = _classify_pi_stacking(normal_angle, lateral_offset, criteria)
+    if subtype is None:
         return None
     ring1_ref = RingRef.from_molecule(
         molecules[mol1_idx], mol1_idx, ring1.atom_indices, is_aromatic=ring1.is_aromatic
@@ -183,7 +235,28 @@ def _evaluate_ring_pair(molecules, mol1_idx, mol2_idx, ring1: RingGeometry, ring
     ring2_ref = RingRef.from_molecule(
         molecules[mol2_idx], mol2_idx, ring2.atom_indices, is_aromatic=ring2.is_aromatic, image=image
     )
-    return ring1_ref, ring2_ref, centroid_distance, normal_angle, lateral_offset
+    return ring1_ref, ring2_ref, centroid_distance, normal_angle, lateral_offset, subtype
+
+
+def _classify_pi_stacking(
+    normal_angle: float,
+    lateral_offset: float,
+    criteria: PiStackingCriteria,
+) -> PiStackingSubtype | None:
+    if normal_angle <= criteria.max_parallel_normal_angle_deg:
+        if lateral_offset <= criteria.max_face_centered_offset_A:
+            return "face_centered_parallel"
+        if lateral_offset <= criteria.max_parallel_lateral_offset_A:
+            return "displaced_parallel"
+        return None
+    if (
+        criteria.min_t_shape_normal_angle_deg
+        <= normal_angle
+        <= criteria.max_t_shape_normal_angle_deg
+        and lateral_offset <= criteria.max_t_shape_lateral_offset_A
+    ):
+        return "T_shape"
+    return None
 
 
 def _translation(lattice, image: tuple[int, int, int]) -> np.ndarray:
@@ -195,7 +268,11 @@ def _translation(lattice, image: tuple[int, int, int]) -> np.ndarray:
 def _criteria_metadata(criteria: PiStackingCriteria) -> dict[str, Any]:
     return {
         "max_centroid_distance_A": criteria.max_centroid_distance_A,
-        "max_normal_angle_deg": criteria.max_normal_angle_deg,
-        "max_lateral_offset_A": criteria.max_lateral_offset_A,
+        "max_parallel_normal_angle_deg": criteria.max_parallel_normal_angle_deg,
+        "min_t_shape_normal_angle_deg": criteria.min_t_shape_normal_angle_deg,
+        "max_t_shape_normal_angle_deg": criteria.max_t_shape_normal_angle_deg,
+        "max_face_centered_offset_A": criteria.max_face_centered_offset_A,
+        "max_parallel_lateral_offset_A": criteria.max_parallel_lateral_offset_A,
+        "max_t_shape_lateral_offset_A": criteria.max_t_shape_lateral_offset_A,
         "aromatic_only": criteria.aromatic_only,
     }
