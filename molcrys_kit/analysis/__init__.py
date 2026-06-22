@@ -27,6 +27,7 @@ from .interactions import (
     find_pi_stacks,
     get_bonding_threshold,
 )
+from .molecular_identity import ChemicalIdentity, ChemicalIdentityCache
 from .species import *
 from .stoichiometry import *
 from .bfdh import BFDHFacetInfo, enumerate_bfdh_facets, enumerate_low_index_millers

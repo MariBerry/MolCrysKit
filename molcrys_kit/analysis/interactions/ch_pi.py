@@ -8,9 +8,9 @@ from typing import Any, Sequence
 import numpy as np
 
 from ...structures.crystal import MolecularCrystal
+from ..molecular_identity import ChemicalIdentity, ChemicalIdentityCache
 from .base import AtomRef, BaseInteraction, RingRef
 from .geometry import enumerate_lattice_images, image_translation, vector_angle_deg
-from .identity import ChemicalIdentity, ChemicalIdentityCache
 from .local_geometry import AtomLocalGeometry, LocalGeometryCache
 
 

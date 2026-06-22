@@ -1,4 +1,4 @@
-"""Chemical identity annotations for interaction analysis."""
+"""Molecule-level chemical identity annotations."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..charge import MolChargeResult, compute_topo_signature
-from ..formula_moiety import heavy_signature, match_molecule_to_fragment, parse_moiety_string
+from .charge import MolChargeResult, compute_topo_signature
+from .formula_moiety import heavy_signature, match_molecule_to_fragment, parse_moiety_string
 
 
 @dataclass(frozen=True)

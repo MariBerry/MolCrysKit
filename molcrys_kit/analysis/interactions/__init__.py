@@ -19,7 +19,7 @@ from .ch_pi import CHPiInteraction, CHPiInteractionCriteria, find_ch_pi, find_ch
 from .h_h_contact import HHContact, HHContactCriteria, find_h_h_contacts
 from .halogen_bond import HalogenBond, HalogenBondCriteria, find_halogen_bonds
 from .hydrogen_bond import HydrogenBond, HydrogenBondCriteria, find_hydrogen_bonds
-from .identity import ChemicalIdentity, ChemicalIdentityCache
+from ..molecular_identity import ChemicalIdentity, ChemicalIdentityCache
 from .local_geometry import (
     AtomLocalGeometry,
     LocalGeometry,
